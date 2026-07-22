@@ -67,9 +67,10 @@ session-restored windows and turns window lookup into archaeology.
    `window id "tab-group-..."` — but assign it to a variable first;
    inline `close window id "..."` fails to parse.
 3. Drive the TUI only with `perform action "text:<chars>" on t`
-   (e.g. `"text:t"` cycles the theme). `send key` is a silent no-op on
-   kitty-keyboard surfaces, and `input text` arrives as a bracketed
-   paste — a tea.PasteMsg that key handlers never see.
+   (e.g. `"text:t"` cycles the theme). `send key` silently drops
+   character keys everywhere (see failure modes), and `input text`
+   arrives as a bracketed paste — a tea.PasteMsg that key handlers
+   never see.
 4. Map to a CGWindowID with the Swift snippet below — the AppleScript
    window id is Ghostty-internal, not a CGWindowID. The demo window's
    title is 👻 (direct-command surfaces get no shell-integration
@@ -103,11 +104,12 @@ Every one observed in a real session; fixes are what actually worked.
   sits on a non-active Space or display — titles are visible and
   `screencapture -R` works while `-l` fails; fix: `activate window`
   first. Check titles to tell the two apart before debugging.
-- **`send key` does nothing on the demo surface** — no error, no
-  effect, keybind combos included. Bubble Tea enables the kitty
-  keyboard protocol and Ghostty 1.3.1's scripted key events die on such
-  surfaces (they work on plain shell surfaces — verified with an echo
-  probe). Use `perform action "text:..."`.
+- **`send key` silently drops character keys** ("a", "t"...) on every
+  surface type; named keys ("enter") arrive, oddly as LF instead of
+  CR, and keybind combos don't fire. Ghostty 1.3.1 bug: the scripted
+  KeyEvent carries no text/unshifted codepoint, and the core encodes
+  printable keys from exactly those fields (ScriptKeyEventCommand
+  .swift). Use `perform action "text:..."`.
 - **JXA window lookup segfaults** (`osascript -l JavaScript` + ObjC
   bridge exits 139 on CFBridgingRelease). Use the Swift snippet.
 - **`write_screen_file:copy,...` clobbers the clipboard** — save with
