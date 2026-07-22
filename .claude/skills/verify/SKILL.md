@@ -1,33 +1,83 @@
 ---
 name: verify
-description: Capture pixel evidence of the streakboard TUI rendering in Ghostty — the only way to observe the kitty-graphics image. Use when verifying changes to tui/ or kitty/.
+description: Capture evidence of the streakboard TUI rendering — a headless pty dump of the kitty-graphics stream, or pixel screenshots of Ghostty driven via AppleScript. Use when verifying changes to tui/ or kitty/.
 ---
 
 # Verifying streakboard in Ghostty
 
-Text-level captures (tmux, pty dumps, Ghostty's HTML export) cannot
-see the board: the image is composited by the terminal's renderer and
-never exists in the text grid. Only a pixel screenshot proves the
-board renders. `Render`/PNG changes don't need any of this — write a
-PNG and look at it.
+Two levels of evidence:
 
-## Recipe (macOS)
+- **Stream (headless, no permissions)** — the kitty graphics
+  transmission passes through the pty, so a raw dump contains the exact
+  PNG the app sent, the placement command, and every placeholder cell.
+  Proves everything streakboard *emits*; works without a display. Use
+  this for most tui/ and kitty/ changes.
+- **Pixels (Ghostty's renderer)** — a screenshot of the live window is
+  the only proof the terminal actually *composites* the image over the
+  placeholder cells. Needed when a change could affect how the image
+  reaches the screen (placement semantics, placeholder colors or
+  diacritics) — a stream can look right while a terminal shows nothing.
 
-1. Build the demo **inside the repo** (Gatekeeper blocks Ghostty from
-   executing binaries in /tmp — it pops an Allow/Cancel dialog):
-   `go build -o ./streakboard-demo ./cmd/streakboard-demo`
-   (the path is gitignored; delete the binary afterwards).
-2. Launch a second Ghostty instance:
-   `/Applications/Ghostty.app/Contents/MacOS/ghostty -e $PWD/streakboard-demo &`
-   Requires Ghostty to have macOS Screen Recording permission
-   (System Settings → Privacy & Security), or step 4 fails with
-   "could not create image from window".
-3. Find the window id with the Swift snippet below. The demo window's
-   title is the binary path; off-screen windows capture fine. Session
-   restore may open extra shell windows — match by title, not count.
-4. `screencapture -x -o -l <id> board.png`, then **look at the image**.
-5. Kill the instance you launched (its pid is the ghostty process
-   whose argv contains `-e`); that closes its windows.
+`Render`/PNG changes need neither — write a PNG and look at it.
+
+What never works: any text-grid export. tmux `capture-pane` swallows
+the APC even with `allow-passthrough on` (image unrecoverable AND
+undisplayable), `write_screen_file:copy,plain` exports only the
+placeholder cells, and the HTML export (`write_screen_file:copy,html`)
+emits them as literal character entities — no `<img>`, no `data:` URI.
+All three verified; not fixable.
+
+## Stream evidence: pty dump
+
+    go build -o ./streakboard-demo ./cmd/streakboard-demo
+    python3 .claude/skills/verify/ptydump.py ./streakboard-demo <outdir>
+
+Runs the demo on a 118x14 pty, answers its startup queries, sends q,
+and reconstructs every kitty transmission. Then **look at**
+`<outdir>/board-from-pty-id1.png` and check the printed placement
+(rows=7, cols=2x*weeks*) and placeholder count (7xcols; 742 at 118
+columns).
+
+## Pixel evidence: script the running Ghostty (macOS)
+
+Ghostty >= 1.3 has an AppleScript dictionary — drive the instance that
+is already running. Never launch a second instance: that resurrects
+session-restored windows and turns window lookup into archaeology.
+
+1. Build **inside the repo** (see above; binaries under /private/tmp
+   make Ghostty pop a Gatekeeper allow dialog). The path is gitignored;
+   delete the binary afterwards.
+2. Launch, focus, and size the demo window (focus matters — see
+   failure modes):
+
+       osascript <<'EOF'
+       tell application "Ghostty"
+           set w to new window with configuration {command:"/abs/path/to/streakboard-demo"}
+           delay 2
+           set t to focused terminal of selected tab of w
+           activate window w
+           delay 0.5
+           perform action "toggle_maximize" on t
+           delay 1
+           return id of w
+       end tell
+       EOF
+
+   Keep the returned id and reference the window later as
+   `window id "tab-group-..."` — but assign it to a variable first;
+   inline `close window id "..."` fails to parse.
+3. Drive the TUI only with `perform action "text:<chars>" on t`
+   (e.g. `"text:t"` cycles the theme). `send key` is a silent no-op on
+   kitty-keyboard surfaces, and `input text` arrives as a bracketed
+   paste — a tea.PasteMsg that key handlers never see.
+4. Map to a CGWindowID with the Swift snippet below — the AppleScript
+   window id is Ghostty-internal, not a CGWindowID. The demo window's
+   title is 👻 (direct-command surfaces get no shell-integration
+   title); pick the full-size one.
+5. `screencapture -x -o -l <id> board.png`, then **look at the image**.
+6. Tear down: `perform action "text:q" on t` quits the demo, but
+   scripted surfaces wait after command exit ("Process exited. Press
+   any key…") — follow with `close window w`. Delete the binary.
 
 ```swift
 // winlist.swift — swift winlist.swift
@@ -35,49 +85,33 @@ import CoreGraphics
 import Foundation
 let list = CGWindowListCopyWindowInfo([.excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
 for w in list where (w[kCGWindowOwnerName as String] as? String ?? "").lowercased().contains("ghostty") {
-    print(w[kCGWindowNumber as String] ?? 0, "|", w[kCGWindowName as String] as? String ?? "", "|",
-          (w[kCGWindowBounds as String] as? [String: Any])?["Width"] ?? 0)
+    let b = w[kCGWindowBounds as String] as? [String: Any] ?? [:]
+    print(w[kCGWindowNumber as String] ?? 0, "|", w[kCGWindowName as String] as? String ?? "<no title>", "|",
+          b["Width"] ?? 0, "x", b["Height"] ?? 0)
 }
 ```
 
-## Failure modes, in the order we hit them
+## Failure modes
 
-Every one of these happened in a real session; the fix column is
-what actually worked, not a guess.
+Every one observed in a real session; fixes are what actually worked.
 
-- **Text capture shows no board.** tmux panes, pty dumps, and
-  Ghostty's HTML export are structurally blind to the image (see
-  intro). Not fixable — go to pixels.
-- **JXA window lookup segfaults** (`osascript -l JavaScript` +
-  ObjC bridge exits 139 on CFBridgingRelease; the deepUnwrap
-  variant silently returns nothing). Fix: the Swift snippet above.
-- **`screencapture -l` says "could not create image from window".**
-  Ghostty (TCC-responsible for everything run inside it) lacks
-  Screen Recording permission. Fix: System Settings → Privacy &
-  Security → Screen Recording → Ghostty. Bonus symptom of the same
-  cause: every window lists as `<no title>` — window names are
-  TCC-gated too, so don't debug title matching before permission.
-- **`-e` runs but no demo process appears** (no `login -flp` child,
-  instance idles with a tiny ~76×103 window). That window is a
-  hidden Gatekeeper dialog: "Allow Ghostty to execute <binary>?" —
-  triggered by binaries under /private/tmp. Fix: build the binary
-  inside the repo and pass that path. Diagnose mystery tiny windows
-  by screenshotting them.
-- **Session restore muddies the window list**: a new instance also
-  reopens previous windows (old titles, shells in old cwds), and
-  the `-e` surface may attach to a tiny window while a full-size
-  restored one sits on another Space. Match windows by owner pid +
-  title (= the binary path) + bounds, never by count or recency.
-  `onscreen=false` windows capture fine.
-- **`--window-width/--window-height` (cells) are unreliable**: often
-  ignored; once honored (1184×326 for 118×14) and then shrunk to
-  255×120 anyway. Resizing via System Events needs Accessibility
-  permission (error -1719 without it). Working fix: launch with
-  session restore active and capture the restored full-size window
-  the demo attaches to.
-- **Tiny windows produce useless evidence**: captures are
-  window-sized (a 258×179 window yields a 258×179 PNG with shadow
-  and perspective). If the capture is small, fix the window, don't
-  squint.
-- The demo's data is randomly generated per run; only layout and
-  label alignment are stable, not the cell pattern.
+- **`screencapture -l` says "could not create image from window"** has
+  two distinct causes. (a) Ghostty (TCC-responsible for everything run
+  inside it) lacks Screen Recording permission — then window titles
+  also list as `<no title>`; one-time fix in System Settings → Privacy
+  & Security → Screen Recording. (b) Permission is fine but the window
+  sits on a non-active Space or display — titles are visible and
+  `screencapture -R` works while `-l` fails; fix: `activate window`
+  first. Check titles to tell the two apart before debugging.
+- **`send key` does nothing on the demo surface** — no error, no
+  effect, keybind combos included. Bubble Tea enables the kitty
+  keyboard protocol and Ghostty 1.3.1's scripted key events die on such
+  surfaces (they work on plain shell surfaces — verified with an echo
+  probe). Use `perform action "text:..."`.
+- **JXA window lookup segfaults** (`osascript -l JavaScript` + ObjC
+  bridge exits 139 on CFBridgingRelease). Use the Swift snippet.
+- **`write_screen_file:copy,...` clobbers the clipboard** — save with
+  `pbpaste` first, restore with `pbcopy` after.
+- **The demo's data is random per run**; only layout and label
+  alignment are stable, not the cell pattern — and `t`/`n` regenerate
+  the data as well.
