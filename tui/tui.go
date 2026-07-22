@@ -4,9 +4,11 @@
 //
 // The board is ordinary text to Bubble Tea — placeholder cells the
 // terminal overlays with the image — so it scrolls, moves, and
-// composes like any other view content. The image bytes are sent
-// out-of-band via tea.Raw commands; run the program on a TrueColor
-// profile so the id-encoding placeholder colors are not downsampled.
+// composes like any other view content. GitHub-style month and weekday
+// labels are composed around the image as plain dimmed text in the
+// terminal's own font. The image bytes are sent out-of-band via tea.Raw
+// commands; run the program on a TrueColor profile so the id-encoding
+// placeholder colors are not downsampled.
 package tui
 
 import (
@@ -24,6 +26,7 @@ const (
 	rows        = 7 // one terminal row per weekday
 	colsPerWeek = 2 // two terminal columns per week keeps day cells square
 	maxWeeks    = 53
+	gutter      = 4 // columns for the "Mon " weekday labels left of the board
 )
 
 // lastID hands out one kitty image id per board so several boards can
@@ -61,7 +64,7 @@ func (m Model) Init() tea.Cmd { return nil }
 // triggers the initial image upload. Other messages are ignored.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
-		if weeks := min(maxWeeks, max(1, size.Width/colsPerWeek)); weeks != m.weeks {
+		if weeks := min(maxWeeks, max(1, (size.Width-gutter)/colsPerWeek)); weeks != m.weeks {
 			m.weeks = weeks
 			return m.refresh()
 		}
@@ -69,9 +72,10 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// View returns the placeholder text the terminal overlays with the
-// image: 7 lines of 2 cells per shown week. It is empty until the
-// first tea.WindowSizeMsg arrives.
+// View returns the board as text: a month-name header line, then 7
+// placeholder lines — 2 cells per shown week, prefixed with a
+// Mon/Wed/Fri gutter — that the terminal overlays with the image. It is
+// empty until the first tea.WindowSizeMsg arrives.
 func (m Model) View() string { return m.view }
 
 // Close returns the command that removes the board's image from the
@@ -109,11 +113,58 @@ func (m Model) refresh() (Model, tea.Cmd) {
 		m.view = err.Error()
 		return m, nil
 	}
-	m.view = ph
+	m.view = compose(o.From, o.To, m.weeks, ph)
 
 	var b strings.Builder
 	b.Write(kitty.Delete(m.id))
 	b.Write(transmit)
 	b.Write(place)
 	return m, tea.Raw(b.String())
+}
+
+// compose wraps the placeholder text with GitHub-style labels: a
+// month-name header line on top and Mon/Wed/Fri beside their rows.
+// Labels are ordinary dimmed text; the dim attribute is reset before
+// each placeholder run so it cannot touch the id-encoding foreground
+// color.
+func compose(from, to time.Time, weeks int, ph string) string {
+	weekdays := [rows]string{1: "Mon", 3: "Wed", 5: "Fri"}
+	var b strings.Builder
+	b.WriteString(strings.Repeat(" ", gutter))
+	b.WriteString(dim(monthHeader(from, to, weeks)))
+	for r, line := range strings.Split(ph, "\n") {
+		b.WriteByte('\n')
+		if wd := weekdays[r]; wd != "" {
+			b.WriteString(dim(wd))
+			b.WriteString(strings.Repeat(" ", gutter-len(wd)))
+		} else {
+			b.WriteString(strings.Repeat(" ", gutter))
+		}
+		b.WriteString(line)
+	}
+	return b.String()
+}
+
+func dim(s string) string { return "\x1b[2m" + s + "\x1b[22m" }
+
+// monthHeader returns a line as wide as the board with a "Jan"-style
+// label over each week that contains the 1st of a month. from is the
+// Sunday starting week 0; days after to are outside the window. A label
+// in the final week would poke past the board's right edge and is
+// dropped.
+func monthHeader(from, to time.Time, weeks int) string {
+	buf := []byte(strings.Repeat(" ", weeks*colsPerWeek))
+	for w := range weeks {
+		for i := range 7 {
+			d := from.AddDate(0, 0, 7*w+i)
+			if d.Day() != 1 || d.After(to) {
+				continue
+			}
+			label := d.Format("Jan")
+			if col := w * colsPerWeek; col+len(label) <= len(buf) {
+				copy(buf[col:], label)
+			}
+		}
+	}
+	return strings.TrimRight(string(buf), " ")
 }
