@@ -1,0 +1,13 @@
+# Compiled binaries
+/streakboard
+/streakboard-demo
+
+# Generated boards
+*.png
+
+# Test and profiling output
+*.test
+cover.out
+
+# macOS
+.DS_Store
