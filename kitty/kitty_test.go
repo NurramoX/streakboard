@@ -27,14 +27,14 @@ func TestPlaceholder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "\x1b[38;5;1m\U0010EEEE̅̅\U0010EEEE̅̍\x1b[39m\n" +
-		"\x1b[38;5;1m\U0010EEEE̍̅\U0010EEEE̍̍\x1b[39m"
+	want := "\x1b[38;2;0;0;1m\U0010EEEE̅̅\U0010EEEE̅̍\x1b[39m\n" +
+		"\x1b[38;2;0;0;1m\U0010EEEE̍̅\U0010EEEE̍̍\x1b[39m"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
 
-func TestPlaceholderTruecolorID(t *testing.T) {
+func TestPlaceholderIDByteOrder(t *testing.T) {
 	got, err := Placeholder(0x123456, 1, 1)
 	if err != nil {
 		t.Fatal(err)

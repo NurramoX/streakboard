@@ -4,7 +4,8 @@
 //
 // The board is ordinary text to Bubble Tea — placeholder cells the
 // terminal overlays with the image — so it scrolls, moves, and
-// composes like any other view content. GitHub-style month and weekday
+// composes like any other view content, and keeps rendering from
+// scrollback after the program exits. GitHub-style month and weekday
 // labels are composed around the image as plain dimmed text in the
 // terminal's own font. The image bytes are sent out-of-band via tea.Raw
 // commands; run the program on a TrueColor profile so the id-encoding
@@ -12,6 +13,7 @@
 package tui
 
 import (
+	"math/rand/v2"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -30,8 +32,15 @@ const (
 )
 
 // lastID hands out one kitty image id per board so several boards can
-// coexist in one program.
+// coexist in one program. It is seeded randomly so the placeholder
+// text a previous run left in scrollback never matches a live id and
+// gets repainted with this run's image.
 var lastID atomic.Uint32
+
+func init() { lastID.Store(rand.Uint32()) }
+
+// nextID returns a fresh image id in 1..kitty.MaxID.
+func nextID() uint32 { return lastID.Add(1)%kitty.MaxID + 1 }
 
 // Model is a Bubble Tea component displaying one streakboard. Create it
 // with New, route Update messages to it, and place View's text anywhere
@@ -48,7 +57,7 @@ type Model struct {
 // and max. o.From and o.To are ignored: the window always ends today
 // and sizes itself to the terminal width, up to one year.
 func New(entries []streakboard.Entry, o streakboard.Options) Model {
-	return Model{id: lastID.Add(1), entries: entries, opts: o}
+	return Model{id: nextID(), entries: entries, opts: o}
 }
 
 // Set replaces the board's data and options and re-uploads the image.
@@ -77,12 +86,6 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 // Mon/Wed/Fri gutter — that the terminal overlays with the image. It is
 // empty until the first tea.WindowSizeMsg arrives.
 func (m Model) View() string { return m.view }
-
-// Close returns the command that removes the board's image from the
-// terminal; sequence it before tea.Quit.
-func (m Model) Close() tea.Cmd {
-	return tea.Raw(string(kitty.Delete(m.id)))
-}
 
 // refresh renders the visible window, rebuilds the placeholder text,
 // and returns the command that re-uploads the image under the board's

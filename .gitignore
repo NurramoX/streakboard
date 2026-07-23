@@ -11,3 +11,5 @@ cover.out
 
 # macOS
 .DS_Store
+
+.claude/worktrees/

@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	streakboard "github.com/NurramoX/streakboard"
+	"github.com/NurramoX/streakboard/kitty"
 )
 
 // raw runs cmd and returns the RawMsg payload it carries.
@@ -111,6 +112,15 @@ func TestModelsGetDistinctIDs(t *testing.T) {
 	a, b := New(nil, streakboard.Options{}), New(nil, streakboard.Options{})
 	if a.id == b.id {
 		t.Errorf("both boards got id %d", a.id)
+	}
+}
+
+func TestNextIDStaysInRange(t *testing.T) {
+	lastID.Store(kitty.MaxID - 1) // walk the counter across the wrap
+	for range 3 {
+		if id := nextID(); id == 0 || id > kitty.MaxID {
+			t.Errorf("nextID() = %d, outside 1..%d", id, kitty.MaxID)
+		}
 	}
 }
 

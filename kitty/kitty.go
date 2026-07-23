@@ -4,7 +4,9 @@
 //
 // Usage: write TransmitPNG then Place to the terminal once, and print
 // the Placeholder text wherever the image should appear; the terminal
-// draws the image over those cells. Write Delete when done.
+// draws the image over those cells. Write Delete before reusing an id
+// for different data; images never deleted keep rendering their
+// placeholder text from scrollback after the program exits.
 package kitty
 
 import (
@@ -97,9 +99,6 @@ func Placeholder(id uint32, rows, cols int) (string, error) {
 		return "", err
 	}
 	fg := fmt.Sprintf("\x1b[38;2;%d;%d;%dm", id>>16&0xff, id>>8&0xff, id&0xff)
-	if id <= 0xff {
-		fg = fmt.Sprintf("\x1b[38;5;%dm", id)
-	}
 	var b strings.Builder
 	for r := range rows {
 		if r > 0 {

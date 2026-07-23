@@ -43,7 +43,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
 		case "q", "ctrl+c":
-			return m, tea.Sequence(m.board.Close(), tea.Quit)
+			return m, tea.Quit
 		case "t":
 			m.theme = (m.theme + 1) % len(themes)
 			var cmd tea.Cmd

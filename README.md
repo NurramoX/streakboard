@@ -10,14 +10,14 @@ TUIs as a real pixel image via the Kitty graphics protocol
 
 ```go
 board := tui.New(entries, streakboard.Options{Max: 20, Scale: 3})
-// route Update messages to it, put board.View() in your layout,
-// and sequence board.Close() before tea.Quit.
+// route Update messages to it and put board.View() in your layout.
 ```
 
 The board sizes itself to the terminal (two columns per week, up
 to a year) and is ordinary text to Bubble Tea: Unicode
 placeholder cells the terminal overlays with the image, so it
-scrolls and composes like any view content. GitHub-style month
+scrolls and composes like any view content — and boards keep
+rendering from scrollback after the program exits. GitHub-style month
 and weekday labels are composed around the image as dimmed text
 in the terminal's own font. Image bytes travel
 out-of-band as tea.Raw commands. Needs bubbletea v2 and a
